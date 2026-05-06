@@ -151,6 +151,8 @@ data:
         local port="$3"
         local version="$4"
         
+        echo "      Testing $version" >&2
+        
         local flag=""
         [[ "$version" == "tls1.2" ]] && flag="-tls1_2"
         [[ "$version" == "tls1.3" ]] && flag="-tls1_3"
@@ -166,6 +168,8 @@ data:
         local port="$3"
         local cipher="$4"
         
+        echo "        Testing cipher: $cipher" >&2
+        
         timeout "$TIMEOUT" nsenter -t 1 -m -u -n -i nsenter --net="$netns" \
             openssl s_client -connect "$ip:$port" -tls1_2 -cipher "$cipher" </dev/null 2>&1 | grep -q "Cipher is"
     }
@@ -176,6 +180,8 @@ data:
         local ip="$2"
         local port="$3"
         local cipher="$4"
+        
+        echo "        Testing cipher: $cipher" >&2
         
         timeout "$TIMEOUT" nsenter -t 1 -m -u -n -i nsenter --net="$netns" \
             openssl s_client -connect "$ip:$port" -tls1_3 -ciphersuites "$cipher" </dev/null 2>&1 | grep -q "Cipher is"
@@ -188,6 +194,8 @@ data:
         local port="$3"
         local version="$4"
         local group="$5"
+        
+        echo "        Testing group: $group" >&2
         
         local flag=""
         [[ "$version" == "tls1.2" ]] && flag="-tls1_2"
