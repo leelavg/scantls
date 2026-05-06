@@ -407,6 +407,8 @@ data:
     # Run main if SCAN_INTERVAL is 0, otherwise loop
     if [[ "$SCAN_INTERVAL" -eq 0 ]]; then
         main
+        echo "Scan complete. Sleeping indefinitely to preserve logs..." >&2
+        sleep infinity
     else
         while true; do
             main
