@@ -29,30 +29,13 @@ cat >resources.yaml <<'OUTER_EOF'
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: ${NAMESPACE}
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: scantls-config
-  namespace: ${NAMESPACE}
-data:
-  TARGET_NAMESPACE: "${TARGET_NAMESPACE}"
-  SCAN_INTERVAL: "${SCAN_INTERVAL}"
-  TIMEOUT: "${TIMEOUT}"
-  EXCLUDE_NAMESPACES: "${EXCLUDE_NAMESPACES}"
-  SKIP_PORTS: "${SKIP_PORTS}"
-  TLS_VERSIONS: "${TLS_VERSIONS}"
-  TLS12_CIPHERS: "${TLS12_CIPHERS}"
-  TLS12_GROUPS: "${TLS12_GROUPS}"
-  TLS13_CIPHERS: "${TLS13_CIPHERS}"
-  TLS13_GROUPS: "${TLS13_GROUPS}"
+  name: @NAMESPACE@
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: scantls-scripts
-  namespace: ${NAMESPACE}
+  namespace: @NAMESPACE@
 data:
   scan-tls.sh: |
     #!/bin/bash
@@ -427,7 +410,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: scantls
-  namespace: ${NAMESPACE}
+  namespace: @NAMESPACE@
 ---
 apiVersion: security.openshift.io/v1
 kind: SecurityContextConstraints
@@ -446,13 +429,13 @@ seLinuxContext:
 fsGroup:
   type: RunAsAny
 users:
-  - system:serviceaccount:${NAMESPACE}:scantls
+  - system:serviceaccount:@NAMESPACE@:scantls
 ---
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: scantls
-  namespace: ${NAMESPACE}
+  namespace: @NAMESPACE@
 spec:
   selector:
     matchLabels:
@@ -468,10 +451,28 @@ spec:
         NODE_LABEL_FILTER_PLACEHOLDER
       containers:
       - name: scanner
-        image: ${IMAGE}
-        envFrom:
-        - configMapRef:
-            name: scantls-config
+        image: @IMAGE@
+        env:
+        - name: TARGET_NAMESPACE
+          value: "@TARGET_NAMESPACE@"
+        - name: SCAN_INTERVAL
+          value: "@SCAN_INTERVAL@"
+        - name: TIMEOUT
+          value: "@TIMEOUT@"
+        - name: EXCLUDE_NAMESPACES
+          value: "@EXCLUDE_NAMESPACES@"
+        - name: SKIP_PORTS
+          value: "@SKIP_PORTS@"
+        - name: TLS_VERSIONS
+          value: "@TLS_VERSIONS@"
+        - name: TLS12_CIPHERS
+          value: "@TLS12_CIPHERS@"
+        - name: TLS12_GROUPS
+          value: "@TLS12_GROUPS@"
+        - name: TLS13_CIPHERS
+          value: "@TLS13_CIPHERS@"
+        - name: TLS13_GROUPS
+          value: "@TLS13_GROUPS@"
         securityContext:
           privileged: true
         volumeMounts:
@@ -506,19 +507,21 @@ spec:
           defaultMode: 0755
 OUTER_EOF
 
-# Now substitute variables in the generated file
-sed -i "s|\${NAMESPACE}|${NAMESPACE}|g" resources.yaml
-sed -i "s|\${IMAGE}|${IMAGE}|g" resources.yaml
-sed -i "s|\${TARGET_NAMESPACE}|${TARGET_NAMESPACE}|g" resources.yaml
-sed -i "s|\${SCAN_INTERVAL}|${SCAN_INTERVAL}|g" resources.yaml
-sed -i "s|\${TIMEOUT}|${TIMEOUT}|g" resources.yaml
-sed -i "s|\${EXCLUDE_NAMESPACES}|${EXCLUDE_NAMESPACES}|g" resources.yaml
-sed -i "s|\${SKIP_PORTS}|${SKIP_PORTS}|g" resources.yaml
-sed -i "s|\${TLS_VERSIONS}|${TLS_VERSIONS}|g" resources.yaml
-sed -i "s|\${TLS12_CIPHERS}|${TLS12_CIPHERS}|g" resources.yaml
-sed -i "s|\${TLS12_GROUPS}|${TLS12_GROUPS}|g" resources.yaml
-sed -i "s|\${TLS13_CIPHERS}|${TLS13_CIPHERS}|g" resources.yaml
-sed -i "s|\${TLS13_GROUPS}|${TLS13_GROUPS}|g" resources.yaml
+# Substitute all variables in one sed command
+sed -i \
+  -e "s|@NAMESPACE@|${NAMESPACE}|g" \
+  -e "s|@IMAGE@|${IMAGE}|g" \
+  -e "s|@TARGET_NAMESPACE@|${TARGET_NAMESPACE}|g" \
+  -e "s|@SCAN_INTERVAL@|${SCAN_INTERVAL}|g" \
+  -e "s|@TIMEOUT@|${TIMEOUT}|g" \
+  -e "s|@EXCLUDE_NAMESPACES@|${EXCLUDE_NAMESPACES}|g" \
+  -e "s|@SKIP_PORTS@|${SKIP_PORTS}|g" \
+  -e "s|@TLS_VERSIONS@|${TLS_VERSIONS}|g" \
+  -e "s|@TLS12_CIPHERS@|${TLS12_CIPHERS}|g" \
+  -e "s|@TLS12_GROUPS@|${TLS12_GROUPS}|g" \
+  -e "s|@TLS13_CIPHERS@|${TLS13_CIPHERS}|g" \
+  -e "s|@TLS13_GROUPS@|${TLS13_GROUPS}|g" \
+  resources.yaml
 
 # Handle NODE_LABEL_FILTER
 if [[ -n "$NODE_LABEL_FILTER" ]]; then
