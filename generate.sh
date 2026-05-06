@@ -20,11 +20,11 @@ TLS13_GROUPS="${TLS13_GROUPS:-secp256r1,X25519,X25519MLKEM768}"
 
 # Source user config if exists
 if [[ -f config.env ]]; then
-    source config.env
+  source config.env
 fi
 
 # Generate resources.yaml
-cat > resources.yaml <<'OUTER_EOF'
+cat >resources.yaml <<'OUTER_EOF'
 ---
 apiVersion: v1
 kind: Namespace
@@ -514,10 +514,10 @@ sed -i "s|\${TLS13_GROUPS}|${TLS13_GROUPS}|g" resources.yaml
 
 # Handle NODE_LABEL_FILTER
 if [[ -n "$NODE_LABEL_FILTER" ]]; then
-    IFS='=' read -r label_key label_value <<< "$NODE_LABEL_FILTER"
-    sed -i "s|NODE_LABEL_FILTER_PLACEHOLDER|${label_key}: \"${label_value}\"|g" resources.yaml
+  IFS='=' read -r label_key label_value <<<"$NODE_LABEL_FILTER"
+  sed -i "s|NODE_LABEL_FILTER_PLACEHOLDER|${label_key}: \"${label_value}\"|g" resources.yaml
 else
-    sed -i "/NODE_LABEL_FILTER_PLACEHOLDER/d" resources.yaml
+  sed -i "/NODE_LABEL_FILTER_PLACEHOLDER/d" resources.yaml
 fi
 
 echo "Generated resources.yaml successfully"
