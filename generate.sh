@@ -67,39 +67,7 @@ data:
     
     # Generate CSV header
     generate_csv_header() {
-        local header="pod_namespace,pod_name,pod_ip,container_name,port,process,status"
-        
-        for version in "${TLS_VERSIONS_ARRAY[@]}"; do
-            [[ -z "$version" ]] && continue
-            header+=",${version}_supported"
-            
-            if [[ "$version" == "tls1.2" ]]; then
-                for cipher in "${TLS12_CIPHERS_ARRAY[@]}"; do
-                    [[ -z "$cipher" ]] && continue
-                    local col=$(echo "$cipher" | tr '-' '_' | tr '[:upper:]' '[:lower:]')
-                    header+=",tls1.2_cipher_${col}"
-                done
-                for group in "${TLS12_GROUPS_ARRAY[@]}"; do
-                    [[ -z "$group" ]] && continue
-                    local col=$(echo "$group" | tr '[:upper:]' '[:lower:]')
-                    header+=",tls1.2_group_${col}"
-                done
-            elif [[ "$version" == "tls1.3" ]]; then
-                for cipher in "${TLS13_CIPHERS_ARRAY[@]}"; do
-                    [[ -z "$cipher" ]] && continue
-                    local col=$(echo "$cipher" | sed 's/TLS_//g' | tr '_' '.' | tr '[:upper:]' '[:lower:]')
-                    header+=",tls1.3_cipher_${col}"
-                done
-                for group in "${TLS13_GROUPS_ARRAY[@]}"; do
-                    [[ -z "$group" ]] && continue
-                    local col=$(echo "$group" | tr '[:upper:]' '[:lower:]')
-                    header+=",tls1.3_group_${col}"
-                done
-            fi
-        done
-        
-        header+=",reason"
-        echo "$header"
+        echo "pod_namespace,pod_name,pod_ip,container_name,port,process,status,tlsversions,tls12ciphers,tls12groups,tls13ciphers,tls13groups,reason"
     }
     
     # Get target namespaces
@@ -240,50 +208,33 @@ data:
         local port="$7"
         local process="$8"
         
-        local result=()
-        result+=("$pod_namespace" "$pod_name" "$pod_ip" "$container_name" "$port" "$process")
+        local status=""
+        local tlsversions=""
+        local tls12ciphers=""
+        local tls12groups=""
+        local tls13ciphers=""
+        local tls13groups=""
+        local reason=""
         
         # Check if port should be skipped
         for skip_port in "${SKIP_PORTS_ARRAY[@]}"; do
             [[ "$port" == "$skip_port" ]] && {
-                result+=("SKIPPED")
-                for version in "${TLS_VERSIONS_ARRAY[@]}"; do
-                    [[ -z "$version" ]] && continue
-                    result+=("false")
-                    if [[ "$version" == "tls1.2" ]]; then
-                        for cipher in "${TLS12_CIPHERS_ARRAY[@]}"; do [[ -n "$cipher" ]] && result+=("false"); done
-                        for group in "${TLS12_GROUPS_ARRAY[@]}"; do [[ -n "$group" ]] && result+=("false"); done
-                    elif [[ "$version" == "tls1.3" ]]; then
-                        for cipher in "${TLS13_CIPHERS_ARRAY[@]}"; do [[ -n "$cipher" ]] && result+=("false"); done
-                        for group in "${TLS13_GROUPS_ARRAY[@]}"; do [[ -n "$group" ]] && result+=("false"); done
-                    fi
-                done
-                result+=("Port in SKIP_PORTS list")
-                IFS=',' ; echo "${result[*]}"
+                status="SKIPPED"
+                reason="Port in SKIP_PORTS list"
+                echo "$pod_namespace,$pod_name,$pod_ip,$container_name,$port,$process,$status,NA,NA,NA,NA,NA,$reason"
                 return
             }
         done
         
         # Test TLS handshake
         if ! test_tls_handshake "$netns" "$pod_ip" "$port"; then
-            result+=("NO_TLS")
-            for version in "${TLS_VERSIONS_ARRAY[@]}"; do
-                [[ -z "$version" ]] && continue
-                result+=("false")
-                if [[ "$version" == "tls1.2" ]]; then
-                    for cipher in "${TLS12_CIPHERS_ARRAY[@]}"; do [[ -n "$cipher" ]] && result+=("false"); done
-                    for group in "${TLS12_GROUPS_ARRAY[@]}"; do [[ -n "$group" ]] && result+=("false"); done
-                elif [[ "$version" == "tls1.3" ]]; then
-                    for cipher in "${TLS13_CIPHERS_ARRAY[@]}"; do [[ -n "$cipher" ]] && result+=("false"); done
-                    for group in "${TLS13_GROUPS_ARRAY[@]}"; do [[ -n "$group" ]] && result+=("false"); done
-                fi
-            done
-            result+=("No TLS handshake")
-            IFS=',' ; echo "${result[*]}"
+            status="NO_TLS"
+            reason="No TLS handshake"
+            echo "$pod_namespace,$pod_name,$pod_ip,$container_name,$port,$process,$status,NA,NA,NA,NA,NA,$reason"
             return
         fi
         
-        result+=("OK")
+        status="OK"
         local supported_versions=()
         
         # Test each configured TLS version
@@ -291,78 +242,79 @@ data:
             [[ -z "$version" ]] && continue
             
             if test_tls_version "$netns" "$pod_ip" "$port" "$version"; then
-                result+=("true")
                 supported_versions+=("$version")
                 
                 if [[ "$version" == "tls1.2" ]]; then
+                    local supported_ciphers=()
                     for cipher in "${TLS12_CIPHERS_ARRAY[@]}"; do
                         [[ -z "$cipher" ]] && continue
                         if test_tls12_cipher "$netns" "$pod_ip" "$port" "$cipher"; then
-                            result+=("true")
-                        else
-                            result+=("false")
+                            supported_ciphers+=("$cipher")
                         fi
                     done
+                    tls12ciphers="${supported_ciphers[*]}"
                     
+                    local supported_groups=()
                     for group in "${TLS12_GROUPS_ARRAY[@]}"; do
                         [[ -z "$group" ]] && continue
                         if test_group "$netns" "$pod_ip" "$port" "tls1.2" "$group"; then
-                            result+=("true")
-                        else
-                            result+=("false")
+                            supported_groups+=("$group")
                         fi
                     done
+                    tls12groups="${supported_groups[*]}"
+                    
                 elif [[ "$version" == "tls1.3" ]]; then
+                    local supported_ciphers=()
                     for cipher in "${TLS13_CIPHERS_ARRAY[@]}"; do
                         [[ -z "$cipher" ]] && continue
                         if test_tls13_cipher "$netns" "$pod_ip" "$port" "$cipher"; then
-                            result+=("true")
-                        else
-                            result+=("false")
+                            supported_ciphers+=("$cipher")
                         fi
                     done
+                    tls13ciphers="${supported_ciphers[*]}"
                     
+                    local supported_groups=()
                     for group in "${TLS13_GROUPS_ARRAY[@]}"; do
                         [[ -z "$group" ]] && continue
                         if test_group "$netns" "$pod_ip" "$port" "tls1.3" "$group"; then
-                            result+=("true")
-                        else
-                            result+=("false")
+                            supported_groups+=("$group")
                         fi
                     done
-                fi
-            else
-                result+=("false")
-                if [[ "$version" == "tls1.2" ]]; then
-                    for cipher in "${TLS12_CIPHERS_ARRAY[@]}"; do [[ -n "$cipher" ]] && result+=("false"); done
-                    for group in "${TLS12_GROUPS_ARRAY[@]}"; do [[ -n "$group" ]] && result+=("false"); done
-                elif [[ "$version" == "tls1.3" ]]; then
-                    for cipher in "${TLS13_CIPHERS_ARRAY[@]}"; do [[ -n "$cipher" ]] && result+=("false"); done
-                    for group in "${TLS13_GROUPS_ARRAY[@]}"; do [[ -n "$group" ]] && result+=("false"); done
+                    tls13groups="${supported_groups[*]}"
                 fi
             fi
         done
         
-        # Build reason for successful scans
-        local reason=""
+        tlsversions="${supported_versions[*]}"
         if [[ ${#supported_versions[@]} -gt 0 ]]; then
             reason="Supports: ${supported_versions[*]}"
         fi
-        result+=("$reason")
-        IFS=',' ; echo "${result[*]}"
+        
+        # Replace empty fields with NA
+        [[ -z "$tlsversions" ]] && tlsversions="NA"
+        [[ -z "$tls12ciphers" ]] && tls12ciphers="NA"
+        [[ -z "$tls12groups" ]] && tls12groups="NA"
+        [[ -z "$tls13ciphers" ]] && tls13ciphers="NA"
+        [[ -z "$tls13groups" ]] && tls13groups="NA"
+        [[ -z "$reason" ]] && reason="NA"
+        
+        echo "$pod_namespace,$pod_name,$pod_ip,$container_name,$port,$process,$status,$tlsversions,$tls12ciphers,$tls12groups,$tls13ciphers,$tls13groups,$reason"
     }
     
     # Main scan loop
     main() {
         local start_time=$(date +%s)
+        local timestamp=$(date -u +"%Y%m%d-%H%M%S")
+        local result_file="/tmp/scantls-results-${timestamp}.csv"
+        
         echo "Starting TLS scan on node: $NODE_NAME" >&2
         echo "Start time: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >&2
         echo "Target namespace: $TARGET_NAMESPACE" >&2
         echo "TLS versions: $TLS_VERSIONS" >&2
-        echo "Writing results to: /tmp/scantls-results.csv" >&2
+        echo "Writing results to: ${result_file}" >&2
         
         # Print CSV header to file
-        generate_csv_header > /tmp/scantls-results.csv
+        generate_csv_header > "${result_file}"
         
         # Scan each namespace
         for ns in $(get_target_namespaces); do
@@ -389,7 +341,7 @@ data:
                     for port_info in $(get_listening_ports "$netns"); do
                         IFS=':' read -r port process <<< "$port_info"
                         echo "    Testing port: $port ($process)" >&2
-                        scan_endpoint "$pod_namespace" "$pod_name" "$pod_ip" "$container_name" "$container_id" "$netns" "$port" "$process" >> /tmp/scantls-results.csv
+                        scan_endpoint "$pod_namespace" "$pod_name" "$pod_ip" "$container_name" "$container_id" "$netns" "$port" "$process" >> "${result_file}"
                     done
                 done
             done
@@ -397,12 +349,15 @@ data:
         
         local end_time=$(date +%s)
         local duration=$((end_time - start_time))
+        local row_count=$(($(wc -l < "${result_file}") - 1))
         echo "Scan complete" >&2
         echo "End time: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >&2
         echo "Duration: ${duration}s ($(date -u -d @${duration} +"%H:%M:%S"))" >&2
+        echo "Total rows: ${row_count}" >&2
+        echo "Result file: ${result_file}" >&2
         echo "" >&2
         echo "=== CSV Results ===" >&2
-        cat /tmp/scantls-results.csv
+        cat "${result_file}"
         echo "" >&2
         echo "=== End of Results ===" >&2
     }
