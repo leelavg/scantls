@@ -366,9 +366,10 @@ data:
         echo "Starting TLS scan on node: $NODE_NAME" >&2
         echo "Target namespace: $TARGET_NAMESPACE" >&2
         echo "TLS versions: $TLS_VERSIONS" >&2
+        echo "Writing results to: /tmp/scantls-results.csv" >&2
         
-        # Print CSV header
-        generate_csv_header
+        # Print CSV header to file
+        generate_csv_header > /tmp/scantls-results.csv
         
         # Scan each namespace
         for ns in $(get_target_namespaces); do
@@ -395,13 +396,18 @@ data:
                     for port_info in $(get_listening_ports "$netns"); do
                         IFS=':' read -r port process <<< "$port_info"
                         echo "    Testing port: $port ($process)" >&2
-                        scan_endpoint "$pod_namespace" "$pod_name" "$pod_ip" "$container_name" "$container_id" "$netns" "$port" "$process"
+                        scan_endpoint "$pod_namespace" "$pod_name" "$pod_ip" "$container_name" "$container_id" "$netns" "$port" "$process" >> /tmp/scantls-results.csv
                     done
                 done
             done
         done
         
         echo "Scan complete" >&2
+        echo "" >&2
+        echo "=== CSV Results ===" >&2
+        cat /tmp/scantls-results.csv
+        echo "" >&2
+        echo "=== End of Results ===" >&2
     }
     
     # Run main if SCAN_INTERVAL is 0, otherwise loop
