@@ -25,11 +25,13 @@ fi
 
 # Generate resources.yaml
 cat >resources.yaml <<'OUTER_EOF'
+#, Namespace for scantls resources
 ---
 apiVersion: v1
 kind: Namespace
 metadata:
   name: @NAMESPACE@
+#, ConfigMap containing TLS scanning script
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -65,7 +67,7 @@ data:
     
     # Generate CSV header
     generate_csv_header() {
-        local header="node_name,pod_namespace,pod_name,pod_ip,container_name,container_id,port,process,status"
+        local header="pod_namespace,pod_name,pod_ip,container_name,port,process,status"
         
         for version in "${TLS_VERSIONS_ARRAY[@]}"; do
             [[ -z "$version" ]] && continue
@@ -239,7 +241,7 @@ data:
         local process="$8"
         
         local result=()
-        result+=("$NODE_NAME" "$pod_namespace" "$pod_name" "$pod_ip" "$container_name" "$container_id" "$port" "$process")
+        result+=("$pod_namespace" "$pod_name" "$pod_ip" "$container_name" "$port" "$process")
         
         # Check if port should be skipped
         for skip_port in "${SKIP_PORTS_ARRAY[@]}"; do
@@ -282,7 +284,7 @@ data:
         fi
         
         result+=("OK")
-        local reason=""
+        local supported_versions=()
         
         # Test each configured TLS version
         for version in "${TLS_VERSIONS_ARRAY[@]}"; do
@@ -290,6 +292,7 @@ data:
             
             if test_tls_version "$netns" "$pod_ip" "$port" "$version"; then
                 result+=("true")
+                supported_versions+=("$version")
                 
                 if [[ "$version" == "tls1.2" ]]; then
                     for cipher in "${TLS12_CIPHERS_ARRAY[@]}"; do
@@ -340,13 +343,20 @@ data:
             fi
         done
         
+        # Build reason for successful scans
+        local reason=""
+        if [[ ${#supported_versions[@]} -gt 0 ]]; then
+            reason="Supports: ${supported_versions[*]}"
+        fi
         result+=("$reason")
         IFS=',' ; echo "${result[*]}"
     }
     
     # Main scan loop
     main() {
+        local start_time=$(date +%s)
         echo "Starting TLS scan on node: $NODE_NAME" >&2
+        echo "Start time: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >&2
         echo "Target namespace: $TARGET_NAMESPACE" >&2
         echo "TLS versions: $TLS_VERSIONS" >&2
         echo "Writing results to: /tmp/scantls-results.csv" >&2
@@ -385,7 +395,11 @@ data:
             done
         done
         
+        local end_time=$(date +%s)
+        local duration=$((end_time - start_time))
         echo "Scan complete" >&2
+        echo "End time: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >&2
+        echo "Duration: ${duration}s ($(date -u -d @${duration} +"%H:%M:%S"))" >&2
         echo "" >&2
         echo "=== CSV Results ===" >&2
         cat /tmp/scantls-results.csv
@@ -405,12 +419,14 @@ data:
             sleep "$SCAN_INTERVAL"
         done
     fi
+#, ServiceAccount for scantls pods
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: scantls
   namespace: @NAMESPACE@
+#, SecurityContextConstraints for privileged scanning
 ---
 apiVersion: security.openshift.io/v1
 kind: SecurityContextConstraints
@@ -430,6 +446,7 @@ fsGroup:
   type: RunAsAny
 users:
   - system:serviceaccount:@NAMESPACE@:scantls
+#, DaemonSet for TLS scanning on each node
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -448,10 +465,12 @@ spec:
       serviceAccountName: scantls
       hostPID: true
       nodeSelector:
-        NODE_LABEL_FILTER_PLACEHOLDER
+        @NODE_LABEL_FILTER@
       containers:
       - name: scanner
         image: @IMAGE@
+        command: ["/bin/bash"]
+        args: ["/scripts/scan-tls.sh"]
         env:
         - name: TARGET_NAMESPACE
           value: "@TARGET_NAMESPACE@"
@@ -508,6 +527,13 @@ spec:
 OUTER_EOF
 
 # Substitute all variables in one sed command
+if [[ -n "$NODE_LABEL_FILTER" ]]; then
+  IFS='=' read -r label_key label_value <<<"$NODE_LABEL_FILTER"
+  NODE_SELECTOR="${label_key}: \"${label_value}\""
+else
+  NODE_SELECTOR=""
+fi
+
 sed -i \
   -e "s|@NAMESPACE@|${NAMESPACE}|g" \
   -e "s|@IMAGE@|${IMAGE}|g" \
@@ -523,12 +549,11 @@ sed -i \
   -e "s|@TLS13_GROUPS@|${TLS13_GROUPS}|g" \
   resources.yaml
 
-# Handle NODE_LABEL_FILTER
-if [[ -n "$NODE_LABEL_FILTER" ]]; then
-  IFS='=' read -r label_key label_value <<<"$NODE_LABEL_FILTER"
-  sed -i "s|NODE_LABEL_FILTER_PLACEHOLDER|${label_key}: \"${label_value}\"|g" resources.yaml
+# Handle NODE_LABEL_FILTER - remove line if empty
+if [[ -z "$NODE_SELECTOR" ]]; then
+  sed -i "/@NODE_LABEL_FILTER@/d" resources.yaml
 else
-  sed -i "/NODE_LABEL_FILTER_PLACEHOLDER/d" resources.yaml
+  sed -i "s|@NODE_LABEL_FILTER@|${NODE_SELECTOR}|g" resources.yaml
 fi
 
 echo "Generated resources.yaml successfully"

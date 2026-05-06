@@ -7,5 +7,5 @@ RUN dnf install -y \
     hostname \
     && dnf clean all
 
-# Script will be mounted from ConfigMap at runtime
-ENTRYPOINT ["/bin/bash", "/scripts/scan-tls.sh"]
+# Default shell - script path specified in DaemonSet
+ENTRYPOINT ["/bin/bash"]

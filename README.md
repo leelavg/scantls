@@ -17,7 +17,7 @@ A DaemonSet-based tool that discovers and tests TLS configurations of all servic
 ```bash
 git clone <repo-url>
 cd scantls
-cp config.env.example config.env  # Edit as needed
+# Edit config.env as needed (optional - has sensible defaults)
 ```
 
 2. **Generate manifest**:
@@ -32,7 +32,13 @@ oc apply -f resources.yaml
 
 4. **Collect results**:
 ```bash
-oc logs -n scantls-system <pod-name> > results.csv
+# Extract CSV from logs (between markers)
+oc logs -n scantls-system <pod-name> | \
+  sed -n '/=== CSV Results ===/,/=== End of Results ===/p' | \
+  grep -v "===" > results.csv
+
+# Or view directly
+oc logs -n scantls-system <pod-name> | grep -A 999 "=== CSV Results ==="
 ```
 
 ## Configuration
