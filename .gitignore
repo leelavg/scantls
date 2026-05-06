@@ -1,0 +1,5 @@
+resources.yaml
+*.swp
+*.swo
+*~
+.DS_Store
