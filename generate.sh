@@ -227,6 +227,7 @@ data:
         # Check if port should be skipped
         for skip_port in "${SKIP_PORTS_ARRAY[@]}"; do
             [[ "$port" == "$skip_port" ]] && {
+                echo "      Skipped: Port $port in SKIP_PORTS list" >&2
                 status="SKIPPED"
                 reason="Port in SKIP_PORTS list"
                 echo "$pod_namespace,$pod_name,$pod_ip,$container_name,$port,$process,$status,NA,NA,NA,NA,NA,$reason"
@@ -236,6 +237,7 @@ data:
         
         # Test TLS handshake
         if ! test_tls_handshake "$netns" "$pod_ip" "$port"; then
+            echo "      No TLS detected on port $port" >&2
             status="NO_TLS"
             reason="No TLS handshake"
             echo "$pod_namespace,$pod_name,$pod_ip,$container_name,$port,$process,$status,NA,NA,NA,NA,NA,$reason"
