@@ -202,7 +202,7 @@ data:
         [[ "$version" == "tls1.3" ]] && flag="-tls1_3"
         
         timeout "$TIMEOUT" nsenter -t 1 -m -u -n -i nsenter --net="$netns" \
-            openssl s_client -connect "$ip:$port" $flag -groups "$group" </dev/null 2>&1 | grep -qE "(Server|Peer) Temp Key"
+            openssl s_client -connect "$ip:$port" $flag -groups "$group" </dev/null 2>&1 | grep -qE "(Server|Peer) Temp Key|Negotiated.*: [^<]"
     }
     
     # Scan endpoint
