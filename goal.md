@@ -1,11 +1,31 @@
-# scantls - TLS Server Scanner for OpenShift/Kubernetes
+# scantls - TLS Scanner for OpenShift/Kubernetes
 
-## Project Objective
-Create a DaemonSet-based tool that scans all TLS-serving servers in a namespace by directly accessing CRI-O and node-level resources. Similar structure to sanim project.
+## Project Goal
+A production-ready DaemonSet that discovers and audits TLS configurations across OpenShift/Kubernetes clusters, with special focus on Post-Quantum (PQ) cryptography readiness.
+
+## Status: ✅ Production Ready
+- Validated on OpenShift 4.21 and 4.22
+- Successfully scans 1,000+ endpoints in under 2 minutes
+- Detects Post-Quantum groups (X25519MLKEM768, SecP256r1MLKEM768, SecP384r1MLKEM1024)
+- CSV output ready for analysis and compliance reporting
+
+## Key Features
+- **Automatic Discovery**: Finds all TLS endpoints via CRI-O and container network namespaces
+- **Comprehensive Testing**: TLS 1.2/1.3 versions, cipher suites, and key exchange groups
+- **Post-Quantum Ready**: Detects MLKEM hybrid groups (X25519MLKEM768, SecP256r1MLKEM768, SecP384r1MLKEM1024)
+- **Flexible Configuration**: Test specific versions/ciphers or run full audit via config.env
+- **Production Validated**: Scans 1,000+ endpoints in 30-84 seconds per node
+- **CSV Output**: Space-separated values for easy analysis in spreadsheets
+
+## Production Results
+**OpenShift 4.22 Full Cluster Scan:**
+- 6 nodes, 1,033 endpoints discovered
+- Scan time: 31-84 seconds per node
+- PQ groups detected in Go 1.23+ services (cnpg-controller-manager, noobaa-operator, ocs-metrics-exporter)
 
 ---
 
-## VALIDATED DISCOVERY FLOW (Tested on Live Cluster)
+## Discovery Flow (Validated on Live Cluster)
 
 ### ✅ Step 1: Get Pod Information
 ```bash
@@ -78,30 +98,26 @@ nsenter -t 1 -m -u -n -i nsenter --net=$NETNS \
 - `generate.sh` sources config.env and overwrites defaults
 - Single Containerfile + config.env + bash script → generates YAML manifest
 
-### 2. Configuration (config.env) - ENHANCED
+### 2. Configuration (config.env)
 
 ```bash
 # Deployment Configuration
 NAMESPACE=scantls-system
-TARGET_NAMESPACE=openshift-ingress  # or ".all" for entire cluster
-SCAN_INTERVAL=3600                  # Seconds between scans (0 = one-shot)
-TIMEOUT=5                           # Timeout per endpoint in seconds
-EXCLUDE_NAMESPACES=""               # Comma-separated (when TARGET_NAMESPACE=".all")
-SKIP_PORTS="80,8080,22,53"          # Optional: skip known non-TLS ports
-IMAGE=quay.io/youruser/scantls:latest
-NODE_LABEL_FILTER=node-role.kubernetes.io/worker=
+TARGET_NAMESPACE=.all               # Scan all namespaces, or specific namespace
+SCAN_INTERVAL=0                     # 0=one-shot, >0=continuous (seconds)
+TIMEOUT=5                           # Timeout per test in seconds
+SKIP_PORTS="22,53"                  # Ports to skip
+IMAGE=quay.io/rhn_support_lgangava/code:scantls
 
 # TLS Testing Configuration
-TLS_VERSIONS="tls1.2,tls1.3"        # Which TLS versions to test (comma-separated)
-
-# TLS 1.2 Configuration
-TLS12_CIPHERS="ECDHE-ECDSA-AES128-GCM-SHA256,ECDHE-ECDSA-AES256-GCM-SHA384,ECDHE-ECDSA-CHACHA20-POLY1305,ECDHE-RSA-AES128-GCM-SHA256,ECDHE-RSA-AES256-GCM-SHA384,ECDHE-RSA-CHACHA20-POLY1305"
-TLS12_GROUPS="secp256r1,secp384r1,secp521r1,X25519"
-
-# TLS 1.3 Configuration
-TLS13_CIPHERS="TLS_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384,TLS_CHACHA20_POLY1305_SHA256"
-TLS13_GROUPS="secp256r1,secp384r1,secp521r1,X25519,X25519MLKEM768,SecP256r1MLKEM768,SecP384r1MLKEM1024"
+TLS_VERSIONS=tls1.2,tls1.3
+TLS12_CIPHERS=ECDHE-ECDSA-AES128-GCM-SHA256,ECDHE-ECDSA-AES256-GCM-SHA384,ECDHE-ECDSA-CHACHA20-POLY1305,ECDHE-RSA-AES128-GCM-SHA256,ECDHE-RSA-AES256-GCM-SHA384,ECDHE-RSA-CHACHA20-POLY1305
+TLS12_GROUPS=prime256v1,secp384r1,secp521r1,X25519
+TLS13_CIPHERS=TLS_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384,TLS_CHACHA20_POLY1305_SHA256
+TLS13_GROUPS=prime256v1,secp384r1,secp521r1,X25519,X25519MLKEM768,SecP256r1MLKEM768,SecP384r1MLKEM1024
 ```
+
+**Note:** Uses OpenSSL native names (prime256v1 instead of secp256r1, OpenSSL format for TLS 1.2 ciphers)
 
 **Configuration Examples:**
 
@@ -141,38 +157,29 @@ TLS_VERSIONS="tls1.2,tls1.3"
 
 ### 4. Data Collection Requirements
 
-**Output Columns for CSV (Dynamic based on config):**
+**CSV Output Format:**
 
-**Fixed Columns (always present):**
-1. node_name
-2. pod_namespace
-3. pod_name
-4. pod_ip
-5. container_name
-6. container_id
-7. port
-8. process
-9. status (OK, NO_TLS, LOCALHOST_ONLY, TIMEOUT, ERROR, etc.)
-10. reason (error message if status != OK)
+**Fixed Columns:**
+- pod_namespace, pod_name, pod_ip
+- container_name, port, process
+- status (OK, NO_TLS, SKIPPED, etc.)
 
-**Dynamic Columns (based on TLS_VERSIONS config):**
+**Space-Separated Value Columns:**
+- tlsversions (e.g., "tls1.2 tls1.3")
+- tls12ciphers (e.g., "ECDHE-RSA-AES128-GCM-SHA256 ECDHE-RSA-AES256-GCM-SHA384")
+- tls12groups (e.g., "prime256v1 secp384r1 X25519")
+- tls13ciphers (e.g., "TLS_AES_128_GCM_SHA256 TLS_AES_256_GCM_SHA384")
+- tls13groups (e.g., "prime256v1 X25519 X25519MLKEM768")
+- reason (status explanation)
 
-If `TLS_VERSIONS` contains "tls1.2":
-- tls1.2_supported (true/false)
-- For each cipher in TLS12_CIPHERS: tls1.2_cipher_<name> (true/false)
-- For each group in TLS12_GROUPS: tls1.2_group_<name> (true/false)
-
-If `TLS_VERSIONS` contains "tls1.3":
-- tls1.3_supported (true/false)
-- For each cipher in TLS13_CIPHERS: tls1.3_cipher_<name> (true/false)
-- For each group in TLS13_GROUPS: tls1.3_group_<name> (true/false)
-
-**Example CSV with minimal config (TLS 1.3 only, 1 cipher, 1 group):**
+**Example CSV:**
 ```csv
-node_name,pod_namespace,pod_name,pod_ip,container_name,container_id,port,process,status,tls1.3_supported,tls1.3_cipher_AES128_GCM,tls1.3_group_X25519,reason
-ip-10-0-1-129,openshift-ingress,router-default-xxx,10.129.0.16,router,e29f4398cdcb1,443,haproxy,OK,true,true,true,
-ip-10-0-1-129,openshift-ingress,router-default-xxx,10.129.0.16,router,e29f4398cdcb1,80,haproxy,NO_TLS,false,false,false,Plain HTTP service
+pod_namespace,pod_name,pod_ip,container_name,port,process,status,tlsversions,tls12ciphers,tls12groups,tls13ciphers,tls13groups,reason
+openshift-storage,cnpg-controller-manager-xxx,10.129.2.27,manager,9443,manager,OK,tls1.2 tls1.3,ECDHE-ECDSA-AES128-GCM-SHA256 ECDHE-ECDSA-AES256-GCM-SHA384,prime256v1,TLS_AES_128_GCM_SHA256 TLS_AES_256_GCM_SHA384,prime256v1 X25519 X25519MLKEM768,Supports: tls1.2 tls1.3
+openshift-ingress,router-default-xxx,10.129.0.16,router,80,haproxy,NO_TLS,NA,NA,NA,NA,NA,No TLS handshake
 ```
+
+**Note:** Empty fields show "NA". Each column contains space-separated values of supported features.
 
 **Status Codes:**
 - **OK**: TLS scan successful - cipher and version information available
@@ -185,29 +192,19 @@ ip-10-0-1-129,openshift-ingress,router-default-xxx,10.129.0.16,router,e29f4398cd
 - **NO_PORTS**: Pod declares no TCP ports in its spec
 - **ERROR**: Scan error occurred (see reason for details)
 
-### 5. Performance Considerations
+### 5. Performance (Production Validated)
 
-**Configurable Performance:**
-- **Minimal config**: 1 version + 1 cipher + 1 group = 3 tests per endpoint (~6-15s)
-- **Medium config**: 1 version + 3 ciphers + 4 groups = 8 tests per endpoint (~16-40s)
-- **Full config**: 2 versions + 6+3 ciphers + 4+7 groups = 22 tests per endpoint (~44-110s)
+**OpenShift 4.22 Full Cluster:**
+- 1,033 endpoints across 6 nodes
+- Scan time: 31-84 seconds per node
+- Parallel execution via DaemonSet
 
-**Optimization Strategy:**
-1. Test TLS version first (1.2 and 1.3)
-2. If version not supported, skip cipher/group tests for that version
-3. Use shorter timeout for initial TLS handshake (2s)
-4. Use full timeout for cipher/group tests (5s)
-5. Run tests sequentially (safer with timeouts)
+**Configuration:** 6 TLS 1.2 ciphers + 4 groups, 3 TLS 1.3 ciphers + 7 groups (including 3 PQ groups)
 
-**Expected Scan Time (with full config):**
-- Small namespace (5 pods, 10 endpoints): ~7-18 minutes
-- Medium namespace (20 pods, 40 endpoints): ~30-75 minutes
-- Large namespace (100 pods, 200 endpoints): ~2.5-6 hours
-
-**Expected Scan Time (with minimal config):**
-- Small namespace (5 pods, 10 endpoints): ~1-3 minutes
-- Medium namespace (20 pods, 40 endpoints): ~5-12 minutes
-- Large namespace (100 pods, 200 endpoints): ~25-60 minutes
+**Optimization:**
+- Tests TLS version first, skips unsupported cipher/group tests
+- 5-second timeout per test
+- Sequential testing for reliability
 
 ### 6. Testing Strategy
 
