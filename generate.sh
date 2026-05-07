@@ -87,7 +87,8 @@ data:
                 echo "$all_ns"
             fi
         else
-            echo "$TARGET_NAMESPACE"
+            # Support both space and comma-separated namespaces
+            echo "$TARGET_NAMESPACE" | tr ' ,' '\n' | grep -v '^$'
         fi
     }
     
@@ -116,22 +117,40 @@ data:
             jq -r '.info.runtimeSpec.linux.namespaces[] | select(.type=="network") | .path'
     }
     
-    # Get listening ports
+    # Get listening ports (optionally filtered by container PID for host network pods)
     get_listening_ports() {
         local netns="$1"
+        local container_pid="$2"
         [[ -z "$netns" ]] && return
         
-        nsenter -t 1 -m -u -n -i nsenter --net="$netns" ss -tlnp 2>/dev/null | grep LISTEN | \
-            awk '{
-                split($4, addr, ":");
-                port = addr[length(addr)];
-                if (match($0, /users:\(\("([^"]+)"/, proc)) {
-                    process = proc[1];
-                } else {
-                    process = "unknown";
-                }
-                print port ":" process;
-            }' | sort -u
+        local ss_output=$(nsenter -t 1 -m -u -n -i nsenter --net="$netns" ss -tlnp 2>/dev/null | grep LISTEN)
+        
+        # If container_pid provided (host network pod), filter by that PID
+        if [[ -n "$container_pid" ]]; then
+            echo "$ss_output" | grep "pid=$container_pid," | \
+                awk '{
+                    split($4, addr, ":");
+                    port = addr[length(addr)];
+                    if (match($0, /users:\(\("([^"]+)"/, proc)) {
+                        process = proc[1];
+                    } else {
+                        process = "unknown";
+                    }
+                    print port ":" process;
+                }' | sort -u
+        else
+            echo "$ss_output" | \
+                awk '{
+                    split($4, addr, ":");
+                    port = addr[length(addr)];
+                    if (match($0, /users:\(\("([^"]+)"/, proc)) {
+                        process = proc[1];
+                    } else {
+                        process = "unknown";
+                    }
+                    print port ":" process;
+                }' | sort -u
+        fi
     }
     
     # Test TLS handshake
@@ -338,17 +357,26 @@ data:
                 local pod_namespace=$(echo "$pod_info" | jq -r '.status.metadata.namespace')
                 local pod_ip=$(echo "$pod_info" | jq -r '.status.network.ip // empty')
                 
-                [[ -z "$pod_ip" ]] && continue
-                
-                echo "  Scanning pod: $pod_name (IP: $pod_ip)" >&2
+                # Don't skip yet - host network pods have no pod_ip, will use node IP
+                echo "  Scanning pod: $pod_name (IP: ${pod_ip:-<host-network>})" >&2
                 
                 for container_id in $(get_containers_for_pod "$pod_id"); do
                     local netns=$(get_container_netns "$container_id")
-                    [[ -z "$netns" ]] && continue
-                    
                     local container_name=$(nsenter -t 1 -m -u -n -i /usr/bin/crictl inspect -o json "$container_id" 2>/dev/null | jq -r '.status.metadata.name')
+                    local container_pid=""
                     
-                    for port_info in $(get_listening_ports "$netns"); do
+                    # Handle host network pods (no separate netns)
+                    if [[ -z "$netns" ]]; then
+                        echo "    Host network pod detected, filtering by container PID" >&2
+                        netns="/proc/1/ns/net"
+                        # Get container PID to filter ports
+                        container_pid=$(nsenter -t 1 -m -u -n -i /usr/bin/crictl inspect -o json "$container_id" 2>/dev/null | jq -r '.info.pid')
+                        # Use node IP for host network pods
+                        local node_ip=$(hostname -I | awk '{print $1}')
+                        [[ -n "$node_ip" ]] && pod_ip="$node_ip"
+                    fi
+                    
+                    for port_info in $(get_listening_ports "$netns" "$container_pid"); do
                         IFS=':' read -r port process <<< "$port_info"
                         echo "    Testing port: $port ($process)" >&2
                         scan_endpoint "$pod_namespace" "$pod_name" "$pod_ip" "$container_name" "$container_id" "$netns" "$port" "$process" >> "${result_file}"

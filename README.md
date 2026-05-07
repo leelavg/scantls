@@ -38,17 +38,27 @@ oc apply --server-side -f resources.yaml
 
 4. **Collect results**:
 ```bash
-# View results in logs
+# Combine results from all pods into single CSV
+FIRST=true
+for pod in $(oc get pods -n scantls-system -o name); do
+  POD_NAME=$(echo $pod | cut -d/ -f2)
+  if [ "$FIRST" = true ]; then
+    # First pod: include header
+    oc logs -n scantls-system $POD_NAME 2>/dev/null | sed -n '/^pod_namespace,/,/^[a-z]/p' | grep -E '^(pod_namespace|[a-z])' > scantls-results.csv
+    FIRST=false
+  else
+    # Other pods: skip header, append data only
+    oc logs -n scantls-system $POD_NAME 2>/dev/null | sed -n '/^[a-z]/p' | grep -v '^pod_namespace' >> scantls-results.csv
+  fi
+done
+echo "Results saved to scantls-results.csv ($(wc -l < scantls-results.csv) rows)"
+
+# Or view results from single pod
 oc logs -n scantls-system <pod-name> | grep -A 999 "=== CSV Results ==="
 
-# Copy all timestamped CSV files from pod
+# Or copy timestamped files from pod
 POD=$(oc get pods -n scantls-system -o name | head -1 | cut -d/ -f2)
 oc exec -n scantls-system $POD -- tar czf - /tmp/scantls-results-*.csv | tar xzf - --strip-components=1
-
-# Or extract latest from logs
-oc logs -n scantls-system <pod-name> | \
-  sed -n '/=== CSV Results ===/,/=== End of Results ===/p' | \
-  grep -v "===" > results.csv
 ```
 
 **Note**: Results are saved as timestamped files (`/tmp/scantls-results-YYYYMMDD-HHMMSS.csv`) to support continuous scanning with SCAN_INTERVAL > 0.
@@ -60,14 +70,16 @@ Edit `config.env` to customize the scan:
 ### Deployment Settings
 ```bash
 NAMESPACE=scantls-system              # Namespace for scanner
-TARGET_NAMESPACE=openshift-ingress    # Namespace to scan (or ".all")
+TARGET_NAMESPACE=.all                 # ".all" or "ns1,ns2,ns3" (comma/space-separated)
 SCAN_INTERVAL=0                       # 0=one-shot, >0=continuous (seconds)
 TIMEOUT=5                             # Timeout per test in seconds
 SKIP_PORTS="22,53"                    # Ports to skip (comma-separated)
 IMAGE=quay.io/...                     # Container image to use
 ```
 
-**Note**: The scanner runs on all nodes (tolerates all taints) since pod scanning is namespace-level, not node-specific.
+**Multi-Namespace Support**: Use comma or space-separated list (e.g., `openshift-ingress,openshift-storage` or `openshift-ingress openshift-storage`)
+
+**Note**: The scanner runs on all nodes (tolerates all taints). Host network pods are supported and filtered by container PID to avoid noise.
 
 ### TLS Testing Configuration
 ```bash
