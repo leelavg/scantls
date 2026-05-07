@@ -202,7 +202,7 @@ data:
         [[ "$version" == "tls1.3" ]] && flag="-tls1_3"
         
         timeout "$TIMEOUT" nsenter -t 1 -m -u -n -i nsenter --net="$netns" \
-            openssl s_client -connect "$ip:$port" $flag -groups "$group" </dev/null 2>&1 | grep -q "Server Temp Key"
+            openssl s_client -connect "$ip:$port" $flag -groups "$group" </dev/null 2>&1 | grep -qE "(Server|Peer) Temp Key"
     }
     
     # Scan endpoint
@@ -429,8 +429,8 @@ spec:
     spec:
       serviceAccountName: scantls
       hostPID: true
-      nodeSelector:
-        @NODE_LABEL_FILTER@
+      tolerations:
+      - operator: Exists
       containers:
       - name: scanner
         image: @IMAGE@
@@ -492,13 +492,6 @@ spec:
 OUTER_EOF
 
 # Substitute all variables in one sed command
-if [[ -n "$NODE_LABEL_FILTER" ]]; then
-  IFS='=' read -r label_key label_value <<<"$NODE_LABEL_FILTER"
-  NODE_SELECTOR="${label_key}: \"${label_value}\""
-else
-  NODE_SELECTOR=""
-fi
-
 sed -i \
   -e "s|@NAMESPACE@|${NAMESPACE}|g" \
   -e "s|@IMAGE@|${IMAGE}|g" \
@@ -514,12 +507,5 @@ sed -i \
   -e "s|@TLS13_GROUPS@|${TLS13_GROUPS}|g" \
   resources.yaml
 
-# Handle NODE_LABEL_FILTER - remove line if empty
-if [[ -z "$NODE_SELECTOR" ]]; then
-  sed -i "/@NODE_LABEL_FILTER@/d" resources.yaml
-else
-  sed -i "s|@NODE_LABEL_FILTER@|${NODE_SELECTOR}|g" resources.yaml
-fi
-
 echo "Generated resources.yaml successfully"
-echo "Deploy with: oc apply -f resources.yaml"
+echo "Deploy with: oc apply --server-side -f resources.yaml"

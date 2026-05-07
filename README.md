@@ -27,19 +27,25 @@ bash generate.sh
 
 3. **Deploy to cluster**:
 ```bash
-oc apply -f resources.yaml
+oc apply --server-side -f resources.yaml
 ```
 
 4. **Collect results**:
 ```bash
-# Extract CSV from logs (between markers)
+# View results in logs
+oc logs -n scantls-system <pod-name> | grep -A 999 "=== CSV Results ==="
+
+# Copy all timestamped CSV files from pod
+POD=$(oc get pods -n scantls-system -o name | head -1 | cut -d/ -f2)
+oc exec -n scantls-system $POD -- tar czf - /tmp/scantls-results-*.csv | tar xzf - --strip-components=1
+
+# Or extract latest from logs
 oc logs -n scantls-system <pod-name> | \
   sed -n '/=== CSV Results ===/,/=== End of Results ===/p' | \
   grep -v "===" > results.csv
-
-# Or view directly
-oc logs -n scantls-system <pod-name> | grep -A 999 "=== CSV Results ==="
 ```
+
+**Note**: Results are saved as timestamped files (`/tmp/scantls-results-YYYYMMDD-HHMMSS.csv`) to support continuous scanning with SCAN_INTERVAL > 0.
 
 ## Configuration
 
@@ -49,10 +55,13 @@ Edit `config.env` to customize the scan:
 ```bash
 NAMESPACE=scantls-system              # Namespace for scanner
 TARGET_NAMESPACE=openshift-ingress    # Namespace to scan (or ".all")
-SCAN_INTERVAL=0                       # 0=one-shot, >0=continuous
+SCAN_INTERVAL=0                       # 0=one-shot, >0=continuous (seconds)
 TIMEOUT=5                             # Timeout per test in seconds
-SKIP_PORTS="22,53"                    # Ports to skip
+SKIP_PORTS="22,53"                    # Ports to skip (comma-separated)
+IMAGE=quay.io/...                     # Container image to use
 ```
+
+**Note**: The scanner runs on all nodes (tolerates all taints) since pod scanning is namespace-level, not node-specific.
 
 ### TLS Testing Configuration
 ```bash
@@ -85,17 +94,20 @@ TLS_VERSIONS=tls1.2,tls1.3
 
 ## CSV Output Format
 
-Dynamic columns based on configuration:
-
 **Fixed columns**:
-- node_name, pod_namespace, pod_name, pod_ip
-- container_name, container_id, port, process
-- status, reason
+- pod_namespace, pod_name, pod_ip
+- container_name, port, process
+- status
 
-**Dynamic columns** (per configured version):
-- `tls1.3_supported` (true/false)
-- `tls1.3_cipher_<name>` (true/false for each cipher)
-- `tls1.3_group_<name>` (true/false for each group)
+**Space-separated value columns**:
+- tlsversions (e.g., "tls1.2 tls1.3")
+- tls12ciphers (e.g., "ECDHE-RSA-AES128-GCM-SHA256 ECDHE-RSA-AES256-GCM-SHA384")
+- tls12groups (e.g., "secp256r1 secp384r1 X25519")
+- tls13ciphers (e.g., "TLS_AES_128_GCM_SHA256 TLS_AES_256_GCM_SHA384")
+- tls13groups (e.g., "secp256r1 X25519 X25519MLKEM768")
+- reason (status explanation)
+
+**Note**: Empty fields show "NA". Each column contains space-separated values of supported features.
 
 ## Status Codes
 
@@ -108,15 +120,13 @@ Dynamic columns based on configuration:
 
 ## Performance
 
-Scan time depends on configuration:
+Scan time varies based on:
+- Number of endpoints discovered
+- TLS versions/ciphers/groups configured
+- Network latency and endpoint responsiveness
+- TIMEOUT setting (default: 5s per test)
 
-| Config | Pods | Time |
-|--------|------|------|
-| Minimal (1 cipher, 1 group) | 5 | 1-3 min |
-| Medium (3 ciphers, 4 groups) | 20 | 5-12 min |
-| Full (9 ciphers, 11 groups) | 20 | 30-75 min |
-
-For 170 ports with full config: ~2-6 hours
+Performance data will be added after production testing.
 
 ## Requirements
 
