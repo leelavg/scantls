@@ -104,12 +104,6 @@ TLS13_CIPHERS=TLS_AES_256_GCM_SHA384
 TLS13_GROUPS=X25519MLKEM768,SecP256r1MLKEM768,SecP384r1MLKEM1024
 ```
 
-**Full Audit** (30-75 min for 20 pods):
-```bash
-TLS_VERSIONS=tls1.2,tls1.3
-# All ciphers and groups (see config.env)
-```
-
 ## CSV Output Format
 
 **Fixed columns**:

@@ -10,7 +10,7 @@ on:
 
 concurrency:
   group: build-image
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   REGISTRY: ghcr.io
