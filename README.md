@@ -1,5 +1,32 @@
 # scantls - TLS Scanner for OpenShift/Kubernetes
 
+## Foreword (by me - human)
+
+I wanted to scan tls with minimal tool setup and tested the individual commands on how they are responding beforing writing a goal and piecing it together. The core idea is:
+1. run a daemonset on all nodes with access to crictl and have nsenter available in the image
+2. use crictl to filter the pods by namepsace and use nsenter along with ss to discover the ports that needs to be poked at
+3. use correct base image which already has PQ support without requiring extra tool like testssl and be quite fast
+4. for hostNetwork, filter out the netns based on pidns of the pod to reduce the noise to maximum extent
+5. write all the results in a csv format to be easily viewable & filtered by importing into sheets
+6. finally, be as fast as possible, currently this scans around 500 ports comfortable under a minute with every port tested against version/cipher/group individually as we can't have openssl to club everything due to how the handshake works, nevertheless, within 2 minutes we'll get the result of a typical OCP cluster.
+
+```
+> grep '^#,' support/*yaml -n
+1:#, Namespace for scantls resources
+7:#, ConfigMap containing TLS scanning script
+388:#, ServiceAccount for scantls pods
+395:#, SecurityContextConstraints for privileged scanning
+415:#, DaemonSet for TLS scanning on each node
+```
+
+The development pattern is in similar vein to [sanim](https://github.com/leelavg/sanim), ie, use some scripts locally to generate a deployable resource manifests and have some easy markers to verify the sections.
+
+The TLS Version/Ciphers/Groups are selected to be inline with [ODF TLS API](https://github.com/red-hat-storage/ocs-tls-profiles/tree/main/api).
+
+Thanks.
+
+## AI Generated
+
 A production-ready DaemonSet that discovers and audits TLS configurations across OpenShift/Kubernetes clusters, with special focus on Post-Quantum (PQ) cryptography readiness.
 
 ## Status: ✅ Production Validated
@@ -21,7 +48,7 @@ A production-ready DaemonSet that discovers and audits TLS configurations across
 
 1. **Clone and configure**:
 ```bash
-git clone <repo-url>
+git clone --depth 1 --branch main https://github.com/leelavg/scantls.git
 cd scantls
 # Edit config.env as needed (optional - has sensible defaults)
 ```
