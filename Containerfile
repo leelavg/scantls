@@ -1,4 +1,4 @@
-FROM registry.redhat.io/ubi10/ubi:10.1
+FROM registry.access.redhat.com/ubi10/ubi:10.1
 
 # Install required tools
 RUN dnf install -y \

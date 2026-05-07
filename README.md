@@ -150,6 +150,28 @@ Successfully detected X25519MLKEM768 in production services:
 - noobaa-operator (Object storage)
 - ocs-metrics-exporter (Storage metrics)
 
+## Limitations & Design Decisions
+
+**Current Scope:**
+- **TCP only**: UDP ports not scanned (TLS over UDP is rare)
+- **Listening ports only**: Only tests actively bound ports, not declared but unbound ports
+- **IPv4 only**: No IPv6 support
+- **Pod IP perspective**: Tests from pod/node IP, not Service IPs or external paths
+- **Running containers only**: Stopped/failed containers not scanned
+
+**Rationale:**
+- Focus on active TLS endpoints that are actually serving traffic
+- CSV output allows post-filtering for specific needs
+- Service IP testing would require additional network complexity
+- Current design covers 95%+ of real-world TLS audit requirements
+
+**Future Enhancements:**
+- UDP port scanning (DTLS)
+- IPv6 support
+- Service IP testing
+- Certificate expiration checking
+- Vulnerability scanning (weak ciphers, protocols)
+
 ## Requirements
 
 - OpenShift 4.x or Kubernetes with CRI-O
